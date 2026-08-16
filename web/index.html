@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <title>Peta Visualisasi Earthquake Pipeline</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+
+  
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    #map {
+      width: 100%;
+      height: 100vh;
+    }
+    .legend {
+      background: white;
+      padding: 8px 10px;
+      border-radius: 4px;
+      box-shadow: 0 0 4px rgba(0,0,0,0.3);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .legend div {
+      margin-bottom: 4px;
+    }
+    .legend span.swatch {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      margin-right: 6px;
+      border-radius: 2px;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- Leaflet JS -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+
+  <!-- Polyline Decorator -->
+  <script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
+    
+
+  <script>
+    // ======================
+    // CONFIG: PATH GEOJSON
+    // ======================
+    const LAYER_CONFIGS = {
+      rawEvents: {
+        name: "Events Raw",
+        url: "data/events_raw.geojson",  // SESUAIKAN
+        color: "#666666"
+      },
+      acoEvents: {
+        name: "ACO Events",
+        url: "data/events_aco.geojson",  // SESUAIKAN
+        color: "#e63946"
+      },
+      gaVectors: {
+        name: "GA Vectors",
+        url: "data/ga_vectors.geojson",   // SESUAIKAN
+        color: "#457b9d"
+      },
+      roi: {
+        name: "Predicted ROI",
+        url: "data/inference_roi.geojson", // SESUAIKAN
+        color: "#2a9d8f"
+      }
+    };
+
+    // ======================
+    // INIT MAP
+    // ======================
+    const map = L.map("map", {
+      center: [-8.0, 112.0], // kira-kira Jawa Timur
+      zoom: 7
+    });
+
+    const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
+    }).addTo(map);
+
+    const baseLayers = { "OpenStreetMap": osm };
+    const overlays = {};
+    const boundsAccumulator = [];
+
+    // ======================
+    // HELPER FUNCTIONS
+    // ======================
+
+    function addBounds(layer) {
+      try {
+        const b = layer.getBounds();
+        if (b.isValid()) {
+          boundsAccumulator.push(b);
+        }
+      } catch (e) {
+        // no-op
+      }
+    }
+
+    function combineBounds(boundsArray) {
+      if (!boundsArray.length) return null;
+      let combined = boundsArray[0];
+      for (let i = 1; i < boundsArray.length; i++) {
+        combined = combined.extend(boundsArray[i]);
+      }
+      return combined;
+    }
+
+    function formatNumber(x, digits = 2) {
+      if (x === null || x === undefined) return "-";
+      const n = Number(x);
+      if (Number.isNaN(n)) return "-";
+      return n.toFixed(digits);
+    }
+
+    // ======================
+    // RAW EVENTS LAYER
+    // ======================
+    function loadRawEvents() {
+      const cfg = LAYER_CONFIGS.rawEvents;
+      const layer = L.layerGroup();
+      overlays[cfg.name] = layer;
+
+      fetch(cfg.url)
+        .then(res => {
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          return res.json();
+        })
+        .then(geojson => {
+          const gj = L.geoJSON(geojson, {
+            pointToLayer: (feature, latlng) => {
+              const props = feature.properties || {};
+              const mag = props.magnitude;
+              const radius = mag ? 2 + Math.max(0, (mag - 2) * 1.5) : 3;
+              return L.circleMarker(latlng, {
+                radius,
+                color: cfg.color,
+                weight: 1,
+                fillColor: cfg.color,
+                fillOpacity: 0.5
+              });
+            },
+            onEachFeature: (feature, layerItem) => {
+              const p = feature.properties || {};
+              const dt = p.datetime || "-";
+              const mag = formatNumber(p.magnitude);
+              const depth = formatNumber(p.depth_km);
+              const type = p.type || "-";
+              layerItem.bindPopup(
+                `<b>Raw Event</b><br>` +
+                `Datetime: ${dt}<br>` +
+                `Type: ${type}<br>` +
+                `Magnitude: ${mag}<br>` +
+                `Depth: ${depth} km`
+              );
+            }
+          }).addTo(layer);
+
+          addBounds(gj);
+        })
+        .catch(err => {
+          console.warn("Failed to load raw events:", err);
+        });
+    }
+
+    // ======================
+    // ACO EVENTS LAYER
+    // ======================
+    function loadACOEvents() {
+      const cfg = LAYER_CONFIGS.acoEvents;
+      const layer = L.layerGroup();
+      overlays[cfg.name] = layer;
+
+      fetch(cfg.url)
+        .then(res => {
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          return res.json();
+        })
+        .then(geojson => {
+          const gj = L.geoJSON(geojson, {
+            pointToLayer: (feature, latlng) => {
+              const p = feature.properties || {};
+              const radiusKm = p.radius_km || 5;
+              // Circle (area) untuk radius, marker kecil di tengah
+              const circle = L.circle(latlng, {
+                radius: radiusKm * 1000,
+                color: cfg.color,
+                weight: 1,
+                fillColor: cfg.color,
+                fillOpacity: 0.08
+              });
+              const marker = L.circleMarker(latlng, {
+                radius: 3,
+                color: cfg.color,
+                weight: 1,
+                fillColor: cfg.color,
+                fillOpacity: 0.7
+              });
+              const group = L.featureGroup([circle, marker]);
+              return group;
+            },
+            onEachFeature: (feature, layerItem) => {
+              const p = feature.properties || {};
+              const dt = p.datetime || "-";
+              const mag = formatNumber(p.magnitude);
+              const depth = formatNumber(p.depth_km);
+              const type = p.type || "-";
+              const hazard = formatNumber(p.hazard_eta);
+              const tau = formatNumber(p.tau_norm);
+              const radius = formatNumber(p.radius_km);
+              const area = formatNumber(p.area_km2);
+
+              layerItem.bindPopup(
+                `<b>ACO Event</b><br>` +
+                `Datetime: ${dt}<br>` +
+                `Type: ${type}<br>` +
+                `Magnitude: ${mag}<br>` +
+                `Depth: ${depth} km<br>` +
+                `Hazard η: ${hazard}<br>` +
+                `τ_norm: ${tau}<br>` +
+                `Radius: ${radius} km<br>` +
+                `Area: ${area} km²`
+              );
+            }
+          }).addTo(layer);
+
+          addBounds(gj);
+        })
+        .catch(err => {
+          console.warn("Failed to load ACO events:", err);
+        });
+    }
+
+    // ======================
+    // GA VECTORS LAYER
+    // ======================
+    function loadGAVectors() {
+      const cfg = LAYER_CONFIGS.gaVectors;
+      const layer = L.layerGroup();
+      overlays[cfg.name] = layer;
+
+      fetch(cfg.url)
+        .then(res => {
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          return res.json();
+        })
+        .then(geojson => {
+          const gj = L.geoJSON(geojson, {
+            style: feature => {
+              const p = feature.properties || {};
+              const type = p.type || "";
+              let color = cfg.color;
+              if (type === "volcanic") color = "#ff7f0e";
+              else if (type === "tectonic") color = "#1f77b4";
+              return {
+                color,
+                weight: 2,
+                opacity: 0.9
+              };
+            },
+            onEachFeature: (feature, layerItem) => {
+              const p = feature.properties || {};
+              const type = p.type || "-";
+              const theta = formatNumber(p.theta_deg);
+              const dir = p.direction || "-";
+              const mode = p.mode || "ga";
+              const freq = p.freq || "-";
+              const period = p.period || "-";
+
+              layerItem.bindPopup(
+                `<b>GA Vector</b><br>` +
+                `Type: ${type}<br>` +
+                `Mode: ${mode}<br>` +
+                `Freq: ${freq}, Period: ${period}<br>` +
+                `Theta: ${theta}°<br>` +
+                `Direction: ${dir}`
+              );
+            }
+          }).addTo(layer);
+
+          // === Tambah arrow head di ujung garis menggunakan polylineDecorator ===
+          // === Tambah arrow head di ujung garis menggunakan polylineDecorator ===
+                    const decorator = L.polylineDecorator(gj, {
+                      patterns: [
+                        {
+                          offset: '100%',      // posisi arrow di ujung garis
+                          repeat: 0,           // jangan diulang-ulang
+                          symbol: L.Symbol.arrowHead({
+                            pixelSize: 36,
+                            headAngle: 45,
+                            polygon: true,
+                            pathOptions: {
+                              // pakai warna yang sama dengan garis
+                              color: '#457b9d',
+                              weight: 2,
+                              opacity: 0.9,
+                              renderer: L.svg()
+                            }
+                          })
+                        }
+                      ]
+                    }).addTo(layer);
+          addBounds(gj);
+        })
+        .catch(err => {
+          console.warn("Failed to load GA vectors:", err);
+        });
+    }
+
+    // ======================
+    // ROI PREDICTION LAYER
+    // ======================
+    function loadROI() {
+      const cfg = LAYER_CONFIGS.roi;
+      const layer = L.layerGroup();
+      overlays[cfg.name] = layer;
+
+      fetch(cfg.url)
+        .then(res => {
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          return res.json();
+        })
+        .then(geojson => {
+          const gj = L.geoJSON(geojson, {
+            style: feature => ({
+              color: cfg.color,
+              weight: 2,
+              fillColor: cfg.color,
+              fillOpacity: 0.15
+            }),
+            onEachFeature: (feature, layerItem) => {
+              const p = feature.properties || {};
+              const model = p.model || "-";
+              const seqLen = p.seq_len ?? p.seq_len ?? "-";
+              const theta = p.pred_theta_deg ?? p.pred_theta_deg ?? p.pred_theta_raw_deg;
+              const thetaStr = theta != null ? formatNumber(theta) : "-";
+              const dir = p.pred_direction || "-";
+              const step = formatNumber(p.pred_step_km);
+              const radius = formatNumber(p.pred_roi_radius_km);
+              const lastDt = p.last_datetime || "-";
+              const lastType = p.last_type || "-";
+              const lastMag = formatNumber(p.last_magnitude);
+              const lastHazard = formatNumber(p.last_hazard_eta);
+              const lastTau = formatNumber(p.last_tau_norm);
+
+              layerItem.bindPopup(
+                `<b>Predicted ROI</b><br>` +
+                `Model: ${model}<br>` +
+                `Seq len: ${seqLen}<br>` +
+                `Pred θ: ${thetaStr}°<br>` +
+                `Direction: ${dir}<br>` +
+                `Step: ${step} km<br>` +
+                `ROI radius: ${radius} km<br><hr>` +
+                `<b>Last Event</b><br>` +
+                `Datetime: ${lastDt}<br>` +
+                `Type: ${lastType}<br>` +
+                `Magnitude: ${lastMag}<br>` +
+                `Hazard η: ${lastHazard}<br>` +
+                `τ_norm: ${lastTau}`
+              );
+            }
+          }).addTo(layer);
+
+          addBounds(gj);
+        })
+        .catch(err => {
+          console.warn("Failed to load ROI:", err);
+        });
+    }
+
+    // ======================
+    // LEGEND
+    // ======================
+    function addLegend() {
+      const legend = L.control({ position: "bottomright" });
+
+      legend.onAdd = function () {
+        const div = L.DomUtil.create("div", "legend");
+        div.innerHTML = `
+          <div><b>Legenda</b></div>
+          <div><span class="swatch" style="background:${LAYER_CONFIGS.rawEvents.color}"></span>Events Raw</div>
+          <div><span class="swatch" style="background:${LAYER_CONFIGS.acoEvents.color}"></span>ACO Events (radius & hazard)</div>
+          <div><span class="swatch" style="background:${LAYER_CONFIGS.gaVectors.color}"></span>GA Vectors (arah klaster)</div>
+          <div><span class="swatch" style="background:${LAYER_CONFIGS.roi.color}"></span>Predicted ROI</div>
+        `;
+        return div;
+      };
+
+      legend.addTo(map);
+    }
+
+    // ======================
+    // MAIN INIT
+    // ======================
+    loadRawEvents();
+    loadACOEvents();
+    loadGAVectors();
+    loadROI();
+    addLegend();
+
+    // layer control
+    const layersControl = L.control.layers(baseLayers, overlays, {
+      collapsed: false
+    }).addTo(map);
+
+    // setelah beberapa waktu, coba fitBounds kalau ada data
+    setTimeout(() => {
+      const combined = combineBounds(boundsAccumulator);
+      if (combined) {
+        map.fitBounds(combined.pad(0.1));
+      }
+    }, 1500);
+  </script>
+</body>
+</html>
