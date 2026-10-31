@@ -43,10 +43,196 @@
       border-radius: 2px;
       vertical-align: middle;
     }
+
+    .eval-toggle {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 9999;
+      background: #1d3557;
+      color: #ffffff;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+    .eval-toggle:hover {
+      background: #2a9d8f;
+    }
+    .eval-panel {
+      position: absolute;
+      top: 52px;
+      right: 10px;
+      z-index: 9999;
+      width: min(560px, calc(100vw - 24px));
+      max-height: calc(100vh - 72px);
+      overflow-y: auto;
+      background: #ffffff;
+      border-radius: 8px;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.3);
+      padding: 12px 14px;
+      font-size: 12px;
+      display: none;
+    }
+    .eval-panel.open {
+      display: block;
+    }
+    .eval-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      gap: 8px;
+    }
+    .eval-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #1d3557;
+    }
+    .eval-close {
+      background: #eef2f7;
+      color: #334155;
+      border: none;
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .eval-close:hover {
+      background: #dbe3ec;
+    }
+    .eval-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .eval-tab {
+      background: #eef2f7;
+      color: #334155;
+      border: none;
+      border-radius: 4px;
+      padding: 5px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .eval-tab:hover {
+      background: #dbe3ec;
+    }
+    .eval-tab.active {
+      background: #1d3557;
+      color: #ffffff;
+    }
+    .eval-metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .eval-card {
+      background: #f1f5f9;
+      border-radius: 6px;
+      padding: 6px 8px;
+    }
+    .eval-card .label {
+      display: block;
+      color: #64748b;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 2px;
+    }
+    .eval-card .value {
+      font-size: 16px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .eval-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .eval-mode {
+      background: #2a9d8f;
+      color: #ffffff;
+      border: none;
+      border-radius: 4px;
+      padding: 5px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .eval-mode:hover {
+      background: #21867a;
+    }
+    .cm-wrap {
+      overflow-x: auto;
+    }
+    .cm-table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 11px;
+    }
+    .cm-table th,
+    .cm-table td {
+      border: 1px solid #e2e8f0;
+      padding: 4px;
+      text-align: center;
+      min-width: 34px;
+    }
+    .cm-table th {
+      background: #f8fafc;
+      color: #334155;
+      font-weight: 600;
+    }
+    .cm-table .cm-axis {
+      background: #eef2f7;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .cm-table .cm-corner {
+      background: #ffffff;
+      font-size: 10px;
+      color: #64748b;
+    }
+    .cm-table .cm-diag {
+      outline: 2px solid #1d3557;
+      outline-offset: -2px;
+      font-weight: 700;
+    }
+    .eval-note {
+      margin-top: 8px;
+      color: #64748b;
+      font-size: 11px;
+      line-height: 1.5;
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
+
+  <button id="eval-toggle" class="eval-toggle" type="button">Evaluasi Model</button>
+
+  <div id="eval-panel" class="eval-panel">
+    <div class="eval-header">
+      <span class="eval-title">Evaluasi Model</span>
+      <button id="eval-close" class="eval-close" type="button">Tutup</button>
+    </div>
+    <div id="eval-tabs" class="eval-tabs"></div>
+    <div id="eval-metrics" class="eval-metrics"></div>
+    <div class="eval-toolbar">
+      <span><b>Tabel Confusion Matrix</b></span>
+      <button id="cm-mode-toggle" class="eval-mode" type="button">Tampilkan Persentase</button>
+    </div>
+    <div id="cm-wrap" class="cm-wrap"></div>
+    <div id="eval-note" class="eval-note"></div>
+  </div>
 
   <!-- Leaflet JS -->
   <script
@@ -411,6 +597,233 @@
     }
 
     // ======================
+    // EVALUATION PANEL
+    // ======================
+    const EVAL_METRICS_URL = "data/metrics_models.json";
+    const EVAL_CLASSES_DEFAULT = ["E", "NE", "N", "NW", "W", "SW", "S", "SE"];
+    const EVAL_MODEL_LABELS = { NB: "Naive Bayes", CNN: "CNN", LSTM: "LSTM" };
+
+    let evalData = null;
+    let evalCurrentModel = "NB";
+    let evalNormalized = false;
+
+    function formatPct(x) {
+      if (x === null || x === undefined) return "-";
+      const n = Number(x);
+      if (Number.isNaN(n)) return "-";
+      return (n * 100).toFixed(1) + "%";
+    }
+
+    function initEvalPanel() {
+      const toggle = document.getElementById("eval-toggle");
+      const panel = document.getElementById("eval-panel");
+      const close = document.getElementById("eval-close");
+      const modeToggle = document.getElementById("cm-mode-toggle");
+
+      if (!toggle || !panel) return;
+
+      L.DomEvent.disableClickPropagation(toggle);
+      L.DomEvent.disableScrollPropagation(toggle);
+      L.DomEvent.disableClickPropagation(panel);
+      L.DomEvent.disableScrollPropagation(panel);
+
+      toggle.addEventListener("click", () => panel.classList.toggle("open"));
+      close.addEventListener("click", () => panel.classList.remove("open"));
+
+      modeToggle.addEventListener("click", () => {
+        evalNormalized = !evalNormalized;
+        modeToggle.textContent = evalNormalized
+          ? "Tampilkan Jumlah"
+          : "Tampilkan Persentase";
+        renderConfusionMatrix();
+      });
+
+      loadEvalMetrics();
+    }
+
+    function loadEvalMetrics() {
+      fetch(EVAL_METRICS_URL, { cache: "no-store" })
+        .then(res => {
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          return res.json();
+        })
+        .then(data => {
+          evalData = data;
+          const models = Object.keys(data.models || {});
+          if (!models.length) throw new Error("Tidak ada model pada file metrik.");
+
+          if (!models.includes(evalCurrentModel)) {
+            evalCurrentModel = models[0];
+          }
+
+          renderEvalTabs();
+          renderEvalMetrics();
+          renderConfusionMatrix();
+        })
+        .catch(err => {
+          const note = document.getElementById("eval-note");
+          if (note) {
+            note.textContent =
+              "Data evaluasi belum tersedia. Jalankan tahap eval pipeline terlebih dahulu. (" +
+              err.message +
+              ")";
+          }
+        });
+    }
+
+    function renderEvalTabs() {
+      const wrap = document.getElementById("eval-tabs");
+      if (!wrap || !evalData) return;
+
+      wrap.innerHTML = "";
+      Object.keys(evalData.models || {}).forEach(name => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "eval-tab" + (name === evalCurrentModel ? " active" : "");
+        btn.textContent = EVAL_MODEL_LABELS[name] || name;
+        btn.addEventListener("click", () => {
+          evalCurrentModel = name;
+          evalNormalized = false;
+          const modeToggle = document.getElementById("cm-mode-toggle");
+          if (modeToggle) modeToggle.textContent = "Tampilkan Persentase";
+          renderEvalTabs();
+          renderEvalMetrics();
+          renderConfusionMatrix();
+        });
+        wrap.appendChild(btn);
+      });
+    }
+
+    function renderEvalMetrics() {
+      const wrap = document.getElementById("eval-metrics");
+      const metrics = evalData && evalData.models
+        ? evalData.models[evalCurrentModel]
+        : null;
+
+      if (!wrap || !metrics) {
+        if (wrap) wrap.innerHTML = "";
+        return;
+      }
+
+      const cards = [
+        { label: "Akurasi", value: formatPct(metrics.accuracy) },
+        { label: "Presisi (macro)", value: formatPct(metrics.precision_macro) },
+        { label: "Recall (macro)", value: formatPct(metrics.recall_macro) },
+        { label: "F1 (macro)", value: formatPct(metrics.f1_macro) },
+        { label: "RMSE Sudut", value: formatNumber(metrics.rmse_angle, 2) + "°" }
+      ];
+
+      wrap.innerHTML = "";
+      cards.forEach(card => {
+        const div = document.createElement("div");
+        div.className = "eval-card";
+        div.innerHTML =
+          `<span class="label">${card.label}</span>` +
+          `<span class="value">${card.value}</span>`;
+        wrap.appendChild(div);
+      });
+    }
+
+    function renderConfusionMatrix() {
+      const wrap = document.getElementById("cm-wrap");
+      const note = document.getElementById("eval-note");
+      const metrics = evalData && evalData.models
+        ? evalData.models[evalCurrentModel]
+        : null;
+
+      if (!wrap || !metrics) {
+        if (wrap) wrap.innerHTML = "";
+        return;
+      }
+
+      const classes = evalData.classes || EVAL_CLASSES_DEFAULT;
+      const matrix = evalNormalized
+        ? metrics.confusion_matrix_normalized
+        : metrics.confusion_matrix;
+
+      if (!matrix) {
+        wrap.innerHTML = "";
+        return;
+      }
+
+      let maxVal = 0;
+      matrix.forEach(row => {
+        row.forEach(v => {
+          const n = Number(v) || 0;
+          if (n > maxVal) maxVal = n;
+        });
+      });
+      if (!maxVal) maxVal = 1;
+
+      const table = document.createElement("table");
+      table.className = "cm-table";
+
+      const headRow = document.createElement("tr");
+      const corner = document.createElement("th");
+      corner.className = "cm-axis cm-corner";
+      corner.textContent = "Aktual \\ Prediksi";
+      headRow.appendChild(corner);
+
+      classes.forEach(c => {
+        const th = document.createElement("th");
+        th.textContent = c;
+        headRow.appendChild(th);
+      });
+      table.appendChild(headRow);
+
+      matrix.forEach((row, i) => {
+        const tr = document.createElement("tr");
+        const th = document.createElement("th");
+        th.className = "cm-axis";
+        th.textContent = classes[i] || i;
+        tr.appendChild(th);
+
+        row.forEach((value, j) => {
+          const v = Number(value) || 0;
+          const intensity = evalNormalized ? Math.min(v, 1) : v / maxVal;
+
+          const td = document.createElement("td");
+          td.textContent = evalNormalized
+            ? (v * 100).toFixed(1) + "%"
+            : String(v);
+          if (i === j) td.className = "cm-diag";
+
+          td.style.background = `rgba(42, 157, 143, ${0.08 + intensity * 0.85})`;
+          td.style.color = intensity > 0.55 ? "#ffffff" : "#0f172a";
+
+          const rawRow = metrics.confusion_matrix && metrics.confusion_matrix[i]
+            ? metrics.confusion_matrix[i]
+            : [];
+          const rawCount = Number(rawRow[j] || 0);
+          const rowTotal = rawRow.reduce((acc, cur) => acc + Number(cur || 0), 0);
+          const pct = rowTotal ? ((rawCount / rowTotal) * 100).toFixed(1) : "0.0";
+
+          td.title =
+            `Aktual: ${classes[i]} | Prediksi: ${classes[j]} | ` +
+            `Jumlah: ${rawCount} | ${pct}% dari kelas aktual`;
+
+          tr.appendChild(td);
+        });
+
+        table.appendChild(tr);
+      });
+
+      wrap.innerHTML = "";
+      wrap.appendChild(table);
+
+      const meta = evalData.meta || {};
+      const skipped = Object.keys(meta.skipped || {});
+      let noteText =
+        `Dievaluasi pada test set bersama (n_test = ${meta.n_test ?? "-"}, ` +
+        `seq_len = ${meta.seq_len ?? "-"}). Baris = arah aktual, kolom = arah ` +
+        `prediksi; kotak diagonal = prediksi benar.`;
+      if (skipped.length) {
+        noteText += ` Model tidak tersedia: ${skipped.join(", ")}.`;
+      }
+      if (note) note.textContent = noteText;
+    }
+
+    // ======================
     // MAIN INIT
     // ======================
     loadRawEvents();
@@ -418,6 +831,7 @@
     loadGAVectors();
     loadROI();
     addLegend();
+    initEvalPanel();
 
     // layer control
     const layersControl = L.control.layers(baseLayers, overlays, {

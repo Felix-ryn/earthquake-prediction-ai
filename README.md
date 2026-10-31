@@ -624,49 +624,72 @@ Kelas ``:
 
 ---
 
-### 6.5. `modules/eval.py` – *DirectionEvaluator* (Naive Bayes)
+### 6.5. `modules/eval.py` – *DirectionEvaluator* (NB + CNN + LSTM)
 
 Tujuan:
 
-- Menyediakan baseline **model klasik** (Gaussian Naive Bayes) untuk klasifikasi arah.
-- Menghasilkan metrik-metrik yang bisa dibandingkan dengan CNN/LSTM.
+- Menyediakan evaluasi **tiga model** (Gaussian Naive Bayes, CNN, LSTM)
+  pada **test set yang sama** agar hasilnya bisa dibandingkan secara adil.
+- Menghasilkan **confusion matrix** 8×8 (raw dan normalized) untuk tiap model.
 
 Fungsi penting:
 
-- ``
+- `build_sequence_dataset` (dari `train.py`)
 
-  - Baca `events_aco_ga`.
-  - Pastikan kolom GA ada: `ga_theta_deg`, `ga_direction`.
-  - Drop NA pada fitur `FEATURE_COLS_NB` + label.
-  - Tambahkan `is_tectonic`, `is_volcanic`.
-  - Bentuk `X` (fitur) dan `y_dir` (kelas arah) + `y_angle` (sudut sebenarnya).
+  - Membangun sequence window `(seq_len, n_features)` beserta label arah & sudut.
+  - `split_sequence_indices` memakai `test_size`, `random_state`, dan
+    `stratify=y_dir` yang sama dengan `Trainer`, sehingga test set evaluasi
+    identik dengan test set saat training.
 
-- ``
+- `_evaluate_nb`
 
-  - Mapping indeks 0..7 menjadi sudut diskrit `0, 45, 90, ..., 315`.
+  - Memakai fitur **event terakhir** dari sequence (`X_raw[:, -1, :]`).
+  - Latih `GaussianNB()` pada data train, prediksi data test.
 
-- ``
+- `_evaluate_torch_model`
 
-  - Menghitung RMSE sudut **dengan wrap-around**:
-    - selisih 359° vs 1° dianggap 2°, bukan 358°.
+  - Load `cnn_angle_dir.pt` / `lstm_angle_dir.pt`, prediksi `logits` dan sudut.
+  - Model yang filenya tidak ada akan di-skip (dicatat di `meta.skipped`).
 
-Kelas ``:
+- `_metrics_from_predictions`
+
+  - Menghitung `confusion_matrix` **dengan `labels=range(8)`** sehingga selalu
+    8×8 (sebelumnya bisa 7×7 jika ada kelas yang tidak muncul di test set).
+  - Menghitung `confusion_matrix_normalized` (normalisasi per baris/kelas aktual).
+  - Menghitung `accuracy`, `precision_macro`, `recall_macro`, `f1_macro`,
+    `support`, `per_class`, dan `rmse_angle` (wrap-around).
+
+Kelas `DirectionEvaluator`:
 
 - `run(self) -> Dict`
-  1. Bangun dataset NB.
-  2. Split train/test dengan `train_test_split`, optional stratify.
-  3. Latih `GaussianNB()` pada data train.
-  4. Prediksi `y_dir_pred` untuk test.
-  5. Hitung:
-     - `accuracy` klasifikasi.
-     - `precision_macro`, `recall_macro`, `f1_macro`.
-     - `confusion_matrix` 8×8.
-     - `per_class[d]` untuk setiap `d ∈ {E, NE, ..., SE}`.
-     - `rmse_angle` antara `y_angle_test` dan sudut diskrit `y_angle_pred`.
-  6. Log ringkasan metrik di logger.
-  7. Simpan semua metrik ke `metrics_nb.json` dalam format JSON.
+  1. Bangun dataset sequence.
+  2. Split indeks train/test (stratified, seed sama dengan training).
+  3. Load scaler `scaler_seq{seq_len}.pkl` (fallback fit ulang).
+  4. Evaluasi NB, CNN, LSTM pada target event yang sama.
+  5. Simpan:
+     - `outputs/metrics_models.json` (gabungan ketiga model),
+     - `web/data/metrics_models.json` (dipakai panel web),
+     - `outputs/metrics_nb.json` (metrik NB, kompatibilitas).
 
-Ini dipakai untuk membandingkan kinerja CNN/LSTM vs model klasik sederhana.
+Struktur `metrics_models.json`:
+
+```json
+{
+  "classes": ["E", "NE", "N", "NW", "W", "SW", "S", "SE"],
+  "meta": { "seq_len": 10, "test_size": 0.3, "random_state": 42,
+            "n_train": 0, "n_test": 0, "eval_scope": "shared-sequence-test-set",
+            "skipped": {} },
+  "models": {
+    "NB":   { "accuracy": 0, "confusion_matrix": [[0]], "confusion_matrix_normalized": [[0]] },
+    "CNN":  { "...": "..." },
+    "LSTM": { "...": "..." }
+  }
+}
+```
+
+Panel **Evaluasi Model** di `web/index.html` membaca file ini dan menampilkan
+tab model, kartu metrik, serta heatmap confusion matrix interaktif
+(raw / normalized).
 
 ---
 
@@ -988,10 +1011,13 @@ Fungsi `loadROI()`:
    - Input: `events_aco_ga.parquet`.
    - Output: model di `models/` + `scaler_seq{seq_len}.pkl`.
 
-5. **Eval (Naive Bayes)**
+5. **Eval (NB + CNN + LSTM)**
 
-   - Input: `events_aco_ga.parquet`.
-   - Output: `outputs/metrics_nb.json`.
+   - Input: `events_aco_ga.parquet`, model di `models/`, dan scaler.
+   - Output:
+     - `outputs/metrics_models.json` (confusion matrix & metrik ketiga model),
+     - `web/data/metrics_models.json` (dibaca panel Evaluasi Model),
+     - `outputs/metrics_nb.json` (metrik NB, kompatibilitas).
 
 6. **Predict (ROI)**
 
@@ -1004,6 +1030,9 @@ Fungsi `loadROI()`:
      - daerah bahaya historis (ACO),
      - orientasi klaster (GA),
      - dan ROI prediksi berikutnya.
+   - Menampilkan panel **Evaluasi Model** dari `web/data/metrics_models.json`
+     berisi tab NB/CNN/LSTM, kartu metrik, dan heatmap confusion matrix
+     (raw / normalized).
 
 
 

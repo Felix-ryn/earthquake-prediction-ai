@@ -119,6 +119,27 @@ def build_sequence_dataset(events_path: Path, seq_len: int = 10):
     return X_seqs, y_angle, y_dir
 
 
+def split_sequence_indices(
+    y_dir: np.ndarray,
+    test_size: float,
+    random_state: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Split indeks sequence secara stratified dengan seed yang sama.
+
+    Dipakai oleh Trainer dan DirectionEvaluator agar test set yang dievaluasi
+    benar-benar identik dengan test set saat training.
+    """
+    indices = np.arange(len(y_dir))
+    train_idx, test_idx = train_test_split(
+        indices,
+        test_size=test_size,
+        random_state=random_state,
+        stratify=y_dir,
+    )
+    return train_idx, test_idx
+
+
 def _make_loader(
     X: np.ndarray,
     y_angle: np.ndarray,
@@ -240,21 +261,16 @@ class Trainer:
 
         X_raw, y_angle, y_dir = build_sequence_dataset(cfg.events_path, cfg.seq_len)
 
-        (
-            X_train_raw,
-            X_val_raw,
-            ya_train,
-            ya_val,
-            yd_train,
-            yd_val,
-        ) = train_test_split(
-            X_raw,
-            y_angle,
-            y_dir,
-            test_size=cfg.test_size,
-            random_state=cfg.random_state,
-            stratify=y_dir,
+        train_idx, val_idx = split_sequence_indices(
+            y_dir, cfg.test_size, cfg.random_state
         )
+
+        X_train_raw = X_raw[train_idx]
+        X_val_raw = X_raw[val_idx]
+        ya_train = y_angle[train_idx]
+        ya_val = y_angle[val_idx]
+        yd_train = y_dir[train_idx]
+        yd_val = y_dir[val_idx]
 
         N_train, T, F = X_train_raw.shape
         scaler = StandardScaler()
