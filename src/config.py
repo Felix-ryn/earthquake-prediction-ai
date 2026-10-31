@@ -103,6 +103,10 @@ class TrainConfig:
 class EvalConfig:
     events_path: Path
     metrics_path: Path = Path("outputs/metrics_nb.json")
+    metrics_models_path: Path = Path("outputs/metrics_models.json")
+    metrics_web_path: Path = Path("web/data/metrics_models.json")
+    model_dir: Path = Path("models")
+    seq_len: int = 10
     test_size: float = 0.3
     random_state: int = 42
     stratify: bool = True
@@ -127,6 +131,8 @@ class IOConfig:
     ga_vectors_geojson_path: Path = Path("web/data/ga_vectors.geojson")
     models_dir: Path = Path("models")
     nb_metrics_path: Path = Path("outputs/metrics_nb.json")
+    metrics_models_path: Path = Path("outputs/metrics_models.json")
+    metrics_models_web_path: Path = Path("web/data/metrics_models.json")
     roi_path: Path = Path("outputs/inference_roi.csv")
     roi_geojson_path: Path = Path("web/data/inference_roi.geojson")
 
@@ -156,6 +162,10 @@ class PipelineConfig:
         return EvalConfig(
             events_path=self.io.events_aco_ga_path,
             metrics_path=self.io.nb_metrics_path,
+            metrics_models_path=self.io.metrics_models_path,
+            metrics_web_path=self.io.metrics_models_web_path,
+            model_dir=self.io.models_dir,
+            seq_len=self.seq_len,
         )
 
     def build_predict_config(self) -> PredictConfig:
@@ -184,6 +194,8 @@ def build_io_from_env() -> "IOConfig":
         ga_vectors_geojson_path=Path(_get_env("IO_GA_VECTORS_GEOJSON_PATH", "web/data/ga_vectors.geojson")),
         models_dir=Path(_get_env("IO_MODELS_DIR", "models")),
         nb_metrics_path=Path(_get_env("IO_NB_METRICS_PATH", "outputs/metrics_nb.json")),
+        metrics_models_path=Path(_get_env("IO_METRICS_MODELS_PATH", "outputs/metrics_models.json")),
+        metrics_models_web_path=Path(_get_env("IO_METRICS_MODELS_WEB_PATH", "web/data/metrics_models.json")),
         roi_path=Path(_get_env("IO_ROI_PATH", "outputs/inference_roi.csv")),
         roi_geojson_path=Path(_get_env("IO_ROI_GEOJSON_PATH", "web/data/inference_roi.geojson")),
     )
@@ -247,6 +259,10 @@ def build_eval_from_env(io: Optional["IOConfig"] = None) -> Optional["EvalConfig
     return EvalConfig(
         events_path=Path(_get_env("EVAL_EVENTS_PATH", str(io.events_aco_ga_path if io else "outputs/events_aco_ga.parquet"))),
         metrics_path=Path(_get_env("EVAL_METRICS_PATH", str(io.nb_metrics_path if io else "outputs/metrics_nb.json"))),
+        metrics_models_path=Path(_get_env("EVAL_METRICS_MODELS_PATH", str(io.metrics_models_path if io else "outputs/metrics_models.json"))),
+        metrics_web_path=Path(_get_env("EVAL_METRICS_WEB_PATH", str(io.metrics_models_web_path if io else "web/data/metrics_models.json"))),
+        model_dir=Path(_get_env("EVAL_MODEL_DIR", str(io.models_dir if io else "models"))),
+        seq_len=_get_env("EVAL_SEQ_LEN", 10),
         test_size=_get_env("EVAL_TEST_SIZE", 0.3),
         random_state=_get_env("EVAL_RANDOM_STATE", 42),
         stratify=_get_env("EVAL_STRATIFY", True),
